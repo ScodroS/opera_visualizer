@@ -17,6 +17,9 @@ from dash.dependencies import Input, Output
 import dash_bootstrap_components as dbc
 import paho.mqtt.client as mqtt
 import os
+from io import BytesIO
+import base64
+from PIL import Image
 
 class Visualizer:
 
@@ -172,7 +175,7 @@ def mqtt_thread(v : Visualizer, broker):
     client.loop_forever()
 
 
-def web_app(v : Visualizer):
+def web_app(v : Visualizer, update_interval : int, debug : bool):
     
     colorbar_trace=go.Scatter(x=[None],
              y=[None],
@@ -235,7 +238,7 @@ def web_app(v : Visualizer):
                 style={"height": "100%", "width": "50vw"}
             )],
         ),
-        dcc.Interval(id="animateInterval", interval=1000)
+        dcc.Interval(id="animateInterval", interval=update_interval)
     ], style={'backgroundColor': colors['background'], 'height': '95vh'}) # 'height': '100%', 'width': '100%', 
 
     @app.callback(
@@ -243,12 +246,18 @@ def web_app(v : Visualizer):
         [Input("animateInterval", "n_intervals")]
     )
     def doUpdate(n):
-        updated = go.Figure(data=go.Image(z=v.update_figure()), layout=layout)
+        img = v.update_figure()
+        img_obj = Image.fromarray(img)
+        prefix = "data:image/png;base64,"
+        with BytesIO() as stream:
+            img_obj.save(stream, format='png')
+            b64_str = prefix + base64.b64encode(stream.getvalue()).decode('unicode_escape')
+        updated = go.Figure(data=go.Image(source=b64_str), layout=layout)
         updated.update_yaxes(visible=False, showticklabels=False)
         updated.update_xaxes(visible=False, showticklabels=False)
         return updated
 
-    app.run_server(debug=False, host="0.0.0.0", port="8050")
+    app.run_server(debug=debug, host="0.0.0.0", port="8050")
 
 
 if __name__ == "__main__":
@@ -261,6 +270,6 @@ if __name__ == "__main__":
     
     # Start threads
     thread.start()
-    
-    web_app(v)
+
+    web_app(v, update_interval=int(os.environ['UPDATE_INTERVAL']), debug=bool(os.environ['DEBUG']))
     # local_app(v)
